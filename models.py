@@ -6,7 +6,13 @@ import torch.nn.functional as F
 from torchaudio.models import Conformer
 from intervaltree import Interval, IntervalTree
 
-    
+"""
+BreathWrapper was adapted from Yang et al. (2024) their code to simplify the inclusion to the TwoStage Detector, the zrc_extractor and feature_extractor for the pre-processing.
+
+Yang, D., Koriyama, T., & Saito, Y. (2024). Frame-wise breath detection with self-training: An exploration of enhancing breath naturalness in text-to-speech. arXiv preprint arXiv:2402.00288.
+"""
+
+
 def zcr_extractor(wav, win_length, hop_length):
     pad_length = win_length // 2
     wav = np.pad(wav, (pad_length, pad_length), 'constant')
@@ -41,6 +47,21 @@ def feature_extractor(wav, sr=16000):
 
 
 def get_silence_ts(s_segs, total_len: int, sr=16000, seg_pad=0):
+    """
+    Compute sample-level timestamps of silence (non-speech) regions
+    by inverting a list of speech segments. Includes leading and
+    trailing silence if the speech does not span the full audio length.
+    Timestamps are clamped to [0, total_len].
+
+    Args:
+        s_segs: List of speech segment dicts with 'start' and 'end' keys (in seconds).
+        total_len: Total length of the audio signal in samples.
+        sr: Sample rate (default: 16000).
+        seg_pad: Padding (in seconds) applied to segment boundaries (default: 0).
+
+    Returns:
+        List of (start_sample, end_sample) tuples representing silence regions.
+    """
     no_speech = [((s_segs[i]['end'] + seg_pad)*sr,
                   (s_segs[i+1]['start'] + seg_pad)*sr) 
                     for i in range(len(s_segs) - 1)]
@@ -57,6 +78,21 @@ def get_silence_ts(s_segs, total_len: int, sr=16000, seg_pad=0):
 
 
 def extract_non_speech(wav, speech_segs, sr=1600, seg_pad=0, min_length=20):
+    """
+    Extract features from non-speech regions of an audio waveform.
+    Silence timestamps are obtained via get_silence_ts(), filtered by
+    a minimum length threshold, and passed through a feature extractor.
+
+    Args:
+        wav: Audio waveform array.
+        speech_segs: List of speech segment dicts with 'start' and 'end' keys.
+        sr: Sample rate (default: 1600).
+        seg_pad: Padding (in seconds) applied to segment boundaries (default: 0).
+        min_length: Minimum silence duration in samples to keep (default: 20).
+
+    Returns:
+        List of [*features, (start_sample, end_sample)] for each valid silence region.
+    """
     no_speech = get_silence_ts(speech_segs, wav.shape[-1], sr, seg_pad)
     
     if len(no_speech) == 0:
@@ -81,8 +117,6 @@ def preprocess_respiro(wav_path, speech_segs, sr=16000):
 
 
 class DetectorWrapper:
-    """
-    """
     def __init__(self, model, device=None):
         super().__init__()
         self.model = model
